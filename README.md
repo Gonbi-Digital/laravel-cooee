@@ -9,6 +9,10 @@ Cooee checks a site from the outside. An exception inside the app is invisible t
 still answers 200 and a checkout that throws on every third order looks healthy from the street.
 This package is the app telling.
 
+It also answers the other way: set a health token and the app serves a `/health` endpoint that
+Cooee's monitor polls, checking the database, cache, storage and queue from the inside, and a
+`/health/ops` page for the people fixing it. See [Health checks](#health-checks).
+
 ## Requirements
 
 PHP 8.2+, Laravel 11.23+ (12 and 13 included).
@@ -125,6 +129,97 @@ it('reports a failed charge', function () {
 ```
 
 Also `assertNotReported($class)`, `assertNothingReported()` and `assertReportedCount($n)`.
+
+## Health checks
+
+The other direction: Cooee asking the app how it is. Pick a long random string, put it in `.env`,
+and paste the same value into the monitor's **Token** field in Cooee:
+
+```dotenv
+COOEE_HEALTH_TOKEN=some-long-random-string
+```
+
+With a token set, the package registers two routes. Without one it registers nothing, so an app
+that only wants error reporting gains no routes.
+
+| Route         | For       | Shape                  | Gate                       | Middleware       |
+| ------------- | --------- | ---------------------- | -------------------------- | ---------------- |
+| `/health`     | a monitor | the JSON contract      | bearer token, else **404** | **none**         |
+| `/health/ops` | a person  | a standalone HTML page | signed in, or the token    | `web` + own gate |
+
+`/health` carries no middleware at all on purpose. With `SESSION_DRIVER=database`, a route inside
+the `web` group boots a session out of the database it is being asked about, and the moment that
+database goes away the monitor gets a 500 with no explanation instead of `database: SQLSTATE[HY000]
+[2002] Connection refused`. The token is the credential, sent as `Authorization: Bearer ...` or,
+from a browser, as `?token=...`.
+
+### The contract
+
+```json
+{
+    "status": "ok",
+    "checks": {
+        "database": { "status": "ok", "message": "mysql · app_production", "ms": 3 },
+        "cache": { "status": "ok", "message": "read back what was written to redis", "ms": 1 },
+        "storage": { "status": "ok", "message": "read back what was written to the s3 disk", "ms": 41 },
+        "queue": { "status": "degraded", "message": "1204 jobs pending, above the 1000 threshold", "ms": 2 }
+    }
+}
+```
+
+`status` is `ok`, `degraded` or `down`, on the report and on each check, and the overall status is
+the **worst** component. `ok` and `degraded` answer 200, `down` answers 503: a queue backlog is
+worth knowing about, not worth declaring an outage over.
+
+| Check      | What it actually does                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `database` | `select 1`. Not `getPdo()`, which hands back a connection opened before the server left.      |
+| `cache`    | Writes a token, reads it back, compares. A failed-over Redis accepts writes and returns null. |
+| `storage`  | Writes a file, reads it back, deletes it in a `finally`, so a probe cannot litter a bucket.   |
+| `queue`    | Pending depth **and** the age of the oldest waiting job, on the `database` driver only.       |
+
+Either queue threshold crossing is `degraded`, never `down`. Switch any check off under
+`health.checks` in `config/cooee.php` where it cannot mean anything.
+
+### The ops page
+
+`/health/ops` shows the checks, the drivers the app runs on, whether `optimize` ran, and the
+release, commit, branch and deploy time when there are any (`COOEE_RELEASE` or `app.version`, a
+`RELEASE` file, and `GIT_SHA` / `GIT_BRANCH` / `DEPLOYED_AT`). It is standalone Blade with inline
+CSS, so it renders on the deploy that broke the frontend build. Publish it with
+`--tag=cooee-views` to change it.
+
+It does not use Laravel's `auth` middleware, which redirects to a route named `login` that a
+Filament app does not have. A stranger gets a **404**. Any signed-in user (on any guard, narrow it
+with `health.page.guards`) or the health token gets in, the token being the only way in when the
+login system is itself what broke. Set `health.page.allow_authenticated` to `false` for token only.
+
+### Health configuration
+
+| Key                   | Env                      | Default          | What it does                                          |
+| --------------------- | ------------------------ | ---------------- | ----------------------------------------------------- |
+| `health.token`        | `COOEE_HEALTH_TOKEN`     | none             | The shared secret. `HEARTBEAT_TOKEN` is read too      |
+| `health.enabled`      | `COOEE_HEALTH`           | when a token is set | Register the routes. `true` without a token leaves `/health` open: local only |
+| `health.path`         | `COOEE_HEALTH_PATH`      | `health`         | Where the JSON endpoint lives                         |
+| `health.page.enabled` | `COOEE_HEALTH_PAGE`      | `true`           | Set `false` to register only the endpoint             |
+| `health.page.path`    | `COOEE_HEALTH_PAGE_PATH` | `health/ops`     | Where the ops page lives                              |
+| `health.queue.*`      |                          | `1000`, `900`    | Pending jobs and seconds waited before `degraded`     |
+| `health.storage.disk` |                          | the default disk | The disk the storage check writes to                  |
+
+### Moving over from laravel-heartbeat
+
+This replaces `gonbi-digital/laravel-heartbeat`. Remove that package and require this one. The
+routes stay at `/health` and `/health/ops`, and `HEARTBEAT_TOKEN` is still read, so the monitor
+keeps working without a change. Then:
+
+- Rename `HEARTBEAT_TOKEN` to `COOEE_HEALTH_TOKEN` when convenient.
+- Rename `HEARTBEAT_API_PATH`, `HEARTBEAT_PAGE` and `HEARTBEAT_PAGE_PATH` to `COOEE_HEALTH_PATH`,
+  `COOEE_HEALTH_PAGE` and `COOEE_HEALTH_PAGE_PATH` if you set them. `HEARTBEAT_API=false` becomes
+  `COOEE_HEALTH=false`.
+- Move a published `config/heartbeat.php` into the `health` key of `config/cooee.php`, with `api`
+  flattened into `health` and `web` renamed to `page`.
+- Route names are now `cooee.health` and `cooee.health.page`, the view is `cooee::health`.
+- One behaviour change: with no token set, the routes are not registered at all rather than open.
 
 ## Developing this package
 
