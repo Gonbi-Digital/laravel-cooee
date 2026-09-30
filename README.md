@@ -15,7 +15,7 @@ Cooee's monitor polls, checking the database, cache, storage and queue from the 
 
 ## Requirements
 
-PHP 8.2+, Laravel 11.23+ (12 and 13 included).
+PHP 8.2+, Laravel 12 or 13.
 
 ## Install
 
