@@ -1,0 +1,58 @@
+{
+    "name": "gonbi-digital/laravel-cooee",
+    "description": "Report your Laravel app's exceptions to Cooee: install, set two env values, done.",
+    "keywords": ["laravel", "cooee", "errors", "exceptions", "monitoring"],
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/Gonbi-Digital/laravel-cooee",
+    "require": {
+        "php": "^8.2",
+        "illuminate/console": "^11.23|^12.0|^13.0",
+        "illuminate/contracts": "^11.23|^12.0|^13.0",
+        "illuminate/http": "^11.23|^12.0|^13.0",
+        "illuminate/support": "^11.23|^12.0|^13.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.20",
+        "orchestra/testbench": "^9.5|^10.0|^11.0",
+        "pestphp/pest": "^3.0|^4.0|^5.0",
+        "pestphp/pest-plugin-laravel": "^3.0|^4.0|^5.0",
+        "phpstan/phpstan": "^2.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "GonbiDigital\\Cooee\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "GonbiDigital\\Cooee\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "GonbiDigital\\Cooee\\CooeeServiceProvider"
+            ],
+            "aliases": {
+                "Cooee": "GonbiDigital\\Cooee\\Facades\\Cooee"
+            }
+        }
+    },
+    "scripts": {
+        "test": [
+            "pint --test",
+            "phpstan analyse",
+            "pest"
+        ],
+        "lint": "pint"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
